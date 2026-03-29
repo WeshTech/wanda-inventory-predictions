@@ -1,16 +1,14 @@
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
-
+from app.db import connect_to_db, close_db
 from app.routes import forecast, recommendations, analytics
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup logic
-
+    await connect_to_db()
     yield
-    # shutdown
+    await close_db()
 
 
 app = FastAPI(
