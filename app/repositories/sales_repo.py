@@ -22,15 +22,15 @@ class SalesRepository:
                 COUNT(s.id) AS total_transactions
             FROM "Sale" s
             WHERE s."storeId" = $1
-            AND s."createdAt" >= NOW() - ($2 * INTERVAL '1 day')
+            AND s."createdAt" >= NOW() - ($2::int * INTERVAL '1 day')
             GROUP BY DATE(s."createdAt")
             ORDER BY sale_date ASC;
-    """
+        """
 
         async with pool.acquire() as conn:
             rows = await conn.fetch(query, store_id, days)
 
-        return [dict(row) for row in rows]
+        return [dict(row) for row in rows]  
 
     async def get_daily_sales_by_business(
         self,
