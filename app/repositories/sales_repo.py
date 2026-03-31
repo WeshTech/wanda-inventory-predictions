@@ -37,20 +37,17 @@ class SalesRepository:
         business_id: str,
         days: int = 180,
     ) -> list[dict[str, Any]]:
-        """
-        Returns daily aggregated sales for a business across all stores.
-        Useful for profit forecasting and whole-business trends.
-        """
         pool = get_db_pool()
 
         query = """
             SELECT
-                DATE(s."createdAt") AS sale_date,
-                COALESCE(SUM(s.subtotal), 0) AS total_sales,
-                COUNT(s.id) AS total_transactions
+                DATE(s."createdAt")             AS sale_date,
+                COALESCE(SUM(s.subtotal), 0)    AS total_sales,
+                COUNT(s.id)                     AS total_transactions
             FROM "Sale" s
             WHERE s."businessId" = $1
-              AND s."createdAt" >= NOW() - ($2 || ' days')::interval
+            AND s."createdAt" >= NOW() - ($2::int * INTERVAL '1 day')
+            AND s."paymentStatus" NOT IN ('CANCELLED', 'REFUNDED')
             GROUP BY DATE(s."createdAt")
             ORDER BY sale_date ASC;
         """
@@ -59,6 +56,7 @@ class SalesRepository:
             rows = await conn.fetch(query, business_id, days)
 
         return [dict(row) for row in rows]
+    
 
     async def get_daily_product_sales_for_store(
         self,
