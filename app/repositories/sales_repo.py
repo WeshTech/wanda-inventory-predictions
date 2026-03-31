@@ -63,34 +63,35 @@ class SalesRepository:
     async def get_daily_product_sales_for_store(
         self,
         store_id: str,
-        business_product_id: str,
+        store_product_id: str,
         days: int = 180,
     ) -> list[dict[str, Any]]:
         """
         Returns daily sales for a specific product in a specific store.
-        This is based on SaleLine joined to StoreProduct.
+        Uses StoreProduct.id directly since SaleLine references storeProductId.
         """
         pool = get_db_pool()
 
         query = """
             SELECT
                 DATE(s."createdAt") AS sale_date,
-                COALESCE(SUM(sl.quantity), 0) AS total_quantity,
-                COALESCE(SUM(sl.quantity * sl.price), 0) AS total_sales
+                COALESCE(SUM(sl.quantity), 0)              AS total_quantity,
+                COALESCE(SUM(sl.quantity * sl.price), 0)   AS total_sales
             FROM "SaleLine" sl
             INNER JOIN "Sale" s
                 ON s.id = sl."saleId"
             INNER JOIN "StoreProduct" sp
                 ON sp.id = sl."storeProductId"
             WHERE s."storeId" = $1
-              AND sp."businessProductId" = $2
-              AND s."createdAt" >= NOW() - ($3 || ' days')::interval
+            AND sl."storeProductId" = $2
+            AND s."createdAt" >= NOW() - ($3::int * INTERVAL '1 day')
+            AND s."paymentStatus" NOT IN ('CANCELLED', 'REFUNDED')
             GROUP BY DATE(s."createdAt")
             ORDER BY sale_date ASC;
         """
 
         async with pool.acquire() as conn:
-            rows = await conn.fetch(query, store_id, business_product_id, days)
+            rows = await conn.fetch(query, store_id, store_product_id, days)
 
         return [dict(row) for row in rows]
 
