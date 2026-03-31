@@ -180,67 +180,91 @@ class SalesRepository:
         constituency: str | None = None,
         ward: str | None = None,
         business_type: str | None = None,
-        days: int = 30,
-        limit: int = 10,
+        days: int = 3650,
+        limit: int = 100,
     ) -> list[dict[str, Any]]:
         """
-        Region-based aggregation for recommendations.
-        This uses Store regional fields and Business.business type.
+        Aggregates sales across ALL businesses in a region to find
+        the fastest-moving products. Supports county, constituency,
+        ward, and business_type filters independently or combined.
+
+        Use cases:
+        - What products are moving fastest in Muranga county?
+        - What's trending for PHARMACY businesses in Westlands?
+        - What are the hot products in Parklands ward?
         """
         pool = get_db_pool()
 
-        query = """
+        filters = []
+        params: list = [days]  # $1 = days
+
+        # Region filters go on Business (indexed), not Store
+        # Business has county/constituency/ward with indexes
+        if county:
+            params.append(county)
+            filters.append(f'LOWER(b.county) = LOWER(${len(params)})')
+
+        if constituency:
+            params.append(constituency)
+            filters.append(f'LOWER(b.constituency) = LOWER(${len(params)})')
+
+        if ward:
+            params.append(ward)
+            filters.append(f'LOWER(b.ward) = LOWER(${len(params)})')
+
+        if business_type:
+            params.append(business_type.upper())
+            filters.append(f'b.business::text = ${len(params)}')
+
+        params.append(limit)
+        limit_placeholder = f'${len(params)}'
+
+        where_clause = (
+            "AND " + "\n              AND ".join(filters)
+            if filters else ""
+        )
+
+        query = f"""
             SELECT
-                sp."businessProductId" AS business_product_id,
-                COALESCE(bp.name, pc.name, 'Unknown Product') AS product_name,
-                COALESCE(bp.brand, pc.brand, 'Unknown Brand') AS brand,
-                st.county,
-                st.constituency,
-                st.ward,
-                b.business::text AS business_type,
-                COALESCE(SUM(sl.quantity), 0) AS total_quantity,
-                COALESCE(SUM(sl.quantity * sl.price), 0) AS total_revenue
+                sp."businessProductId"                              AS business_product_id,
+                COALESCE(bp.name, pc.name, 'Unknown Product')       AS product_name,
+                COALESCE(bp.brand, pc.brand, 'Unknown Brand')       AS brand,
+                bp.unit                                             AS unit,
+                b.county,
+                b.constituency,
+                b.ward,
+                b.business::text                                    AS business_type,
+                COUNT(DISTINCT s."businessId")                      AS business_count,
+                COALESCE(SUM(sl.quantity), 0)                       AS total_quantity,
+                COALESCE(SUM(sl.quantity * sl.price), 0)            AS total_revenue,
+                ROUND(
+                    COALESCE(SUM(sl.quantity), 0)::numeric / 
+                    NULLIF($1::int, 0), 2
+                )                                                   AS avg_daily_quantity
             FROM "SaleLine" sl
-            INNER JOIN "Sale" s
-                ON s.id = sl."saleId"
-            INNER JOIN "Store" st
-                ON st.id = s."storeId"
-            INNER JOIN "Business" b
-                ON b.id = s."businessId"
-            INNER JOIN "StoreProduct" sp
-                ON sp.id = sl."storeProductId"
-            INNER JOIN "BusinessProduct" bp
-                ON bp.id = sp."businessProductId"
-            LEFT JOIN "ProductCatalogue" pc
-                ON pc.id = bp."productId"
-            WHERE s."createdAt" >= NOW() - ($1 || ' days')::interval
-              AND ($2::text IS NULL OR st.county = $2)
-              AND ($3::text IS NULL OR st.constituency = $3)
-              AND ($4::text IS NULL OR st.ward = $4)
-              AND ($5::text IS NULL OR b.business::text = $5)
+            INNER JOIN "Sale" s       ON s.id = sl."saleId"
+            INNER JOIN "Business" b   ON b.id = s."businessId"
+            INNER JOIN "StoreProduct" sp ON sp.id = sl."storeProductId"
+            INNER JOIN "BusinessProduct" bp ON bp.id = sp."businessProductId"
+            LEFT JOIN "ProductCatalogue" pc ON pc.id = bp."productId"
+            WHERE s."createdAt" >= NOW() - ($1::int * INTERVAL '1 day')
+            AND s."paymentStatus" NOT IN ('CANCELLED', 'REFUNDED')
+            {where_clause}
             GROUP BY
                 sp."businessProductId",
-                bp.name,
-                pc.name,
-                bp.brand,
-                pc.brand,
-                st.county,
-                st.constituency,
-                st.ward,
+                bp.name, pc.name,
+                bp.brand, pc.brand,
+                bp.unit,
+                b.county, b.constituency, b.ward,
                 b.business
             ORDER BY total_quantity DESC, total_revenue DESC
-            LIMIT $6;
+            LIMIT {limit_placeholder};
         """
 
         async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                query,
-                days,
-                county,
-                constituency,
-                ward,
-                business_type,
-                limit,
-            )
+            rows = await conn.fetch(query, *params)
+            print(f"[RegionalQuery] {len(rows)} rows | filters: county={county}, "
+                f"constituency={constituency}, ward={ward}, "
+                f"business_type={business_type}, days={days}")
 
         return [dict(row) for row in rows]
