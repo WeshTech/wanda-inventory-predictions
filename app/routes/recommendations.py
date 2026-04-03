@@ -20,7 +20,7 @@ async def get_regional_recommendations(
     ward: str | None = Query(None, description="Ward name"),
     business_type: str | None = Query(None, description="Business type, e.g. PHARMACY"),
     days: int = Query(3650, ge=1, le=3650),  
-    limit: int = Query(100, ge=1, le=101),
+    limit: int = Query(100, ge=1, le=100),
 ):
     if not county and not constituency and not ward:
         raise HTTPException(
@@ -30,7 +30,6 @@ async def get_regional_recommendations(
 
     repo = SalesRepository()
 
-    print(county, constituency, ward, business_type, days, limit)
 
     recommendations = await repo.get_top_selling_products_by_region(
         county=county,
@@ -41,7 +40,6 @@ async def get_regional_recommendations(
         limit=limit,
     )
 
-    print(recommendations)
 
     if not recommendations:
         raise HTTPException(
@@ -66,7 +64,7 @@ async def get_regional_recommendations(
 async def get_fast_moving_goods_per_store(
     store_id: str = Query(..., description="Store ID"),
     days: int = Query(3650, ge=1, le=3650),
-    limit: int = Query(10, ge=1, le=50),
+    limit: int = Query(10, ge=1, le=100),
 ):
     repo = SalesRepository()
     items = await repo.get_top_selling_products_by_store(
@@ -96,7 +94,7 @@ async def get_fast_moving_goods_per_store(
 async def get_weekend_hot_sales(
     store_id: str = Query(..., description="Store ID"),
     days: int = Query(3650, ge=1, le=3650),
-    limit: int = Query(10, ge=1, le=50),
+    limit: int = Query(10, ge=1, le=100),
 ):
     repo = SalesRepository()
     items = await repo.get_weekend_hot_sales_by_store(
